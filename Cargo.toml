@@ -1,0 +1,53 @@
+[package]
+name = "baam"
+version = "0.1.0"
+edition = "2024"
+authors = ["⭐NINIKA⭐"]
+description = "A baam client for your 3DS"
+
+[dependencies]
+ctru-rs = { git = "https://github.com/rust3ds/ctru-rs.git" }
+ctru-sys = { git = "https://github.com/rust3ds/ctru-rs.git" }
+# citro3d-sys = { git = "https://github.com/rust3ds/citro3d-rs.git", rev = "bb643c72aaa647d91bd422317fe59aed225dce32" }
+
+anyhow = "1.0.96"
+
+ureq = { version = "3.0.6", default-features = false, features = ["rustls-no-provider", "json"] }
+rustls-rustcrypto = "0.0.2-alpha"
+
+serde = { version = "1.0.218", features = ["derive"] }
+
+url = "2.5.4"
+
+async-channel = "2.3.1"
+async-broadcast = "0.7.2"
+oneshot = "0.1.10"
+futures = "0.3.31"
+blocking = "1.6.1"
+
+serde_json = "1.0.139"
+
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+
+[build-dependencies]
+cc = "1.2.14"
+cmake = "0.1.54"
+
+[package.metadata.cargo-3ds]
+authors = ["NINIKA"]
+name = "baam"
+icon_path = "res/icon.png"
+
+[patch.'https://github.com/rust3ds/ctru-rs.git']
+# HACK: an extra slash to fool cargo's normalization https://github.com/rust-lang/cargo/issues/5478#issuecomment-518026540
+# ctru-rs = { git = "https://github.com/rust3ds//ctru-rs.git", rev = "786af2bdb43b2f178afc59f4f9d07c410235556f" }
+# ctru-sys = { git = "https://github.com/rust3ds//ctru-rs.git", rev = "786af2bdb43b2f178afc59f4f9d07c410235556f" }
+
+# using a fork because we want more SVC abstractions and y2r module support
+ctru-rs = { git = "https://github.com/DCNick3/ctru-rs.git", rev = "dca2232519daab667d05826090d275be1df43a85" }
+ctru-sys = { git = "https://github.com/DCNick3/ctru-rs.git", rev = "dca2232519daab667d05826090d275be1df43a85" }
+
+# pin the version of pthread-3ds
+[patch.'https://github.com/rust3ds/pthread-3ds.git']
+pthread-3ds = { git = "https://github.com/rust3ds//pthread-3ds.git", rev = "5d9e47ae75fcdbdbf38cc0d9314daeb3c508c75e" }

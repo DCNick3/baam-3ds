@@ -1,0 +1,4 @@
+[target.armv6k-nintendo-3ds]
+#linker = "arm-none-eabi-g++"
+# specify the full path to the linker & use g++ instead of gcc to get standard C++ libs
+linker = "/opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc"
