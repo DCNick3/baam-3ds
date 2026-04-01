@@ -123,7 +123,7 @@ impl<T: Camera> CameraExt for T {}
 
 pub type YuvBuffer = Box<[u8], LinearAllocator>;
 
-const CONSUMER_COUNT: usize = 4;
+const CONSUMER_COUNT: usize = 6;
 
 pub fn make_yuv_buffers(
     buffer_size: usize,
