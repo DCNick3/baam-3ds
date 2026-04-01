@@ -10,10 +10,9 @@ pub struct Y2rContext {
     yuv_receiver: spmc_buffer::Output<YuvBuffer>,
     camera_view_size: (i16, i16),
     texture_size: (i16, i16),
-    rgb_bpp: i16,
     service: Y2r,
     transfer_end_event: OwnedInterruptEvent,
-    rgb_buffer: Box<[u8], LinearAllocator>,
+    rgb_buffer: Box<[u16], LinearAllocator>,
 }
 
 impl Y2rContext {
@@ -50,37 +49,37 @@ impl Y2rContext {
             .enable_transfer_end_interrupt()
             .context("Enabling transfer end interrupt")?;
 
-        let rgb_bpp = match output_format {
-            y2r::OutputFormat::Rgb32 => 4,
-            y2r::OutputFormat::Rgb24 => 3,
-            y2r::OutputFormat::Rgb16_555 => 2,
-            y2r::OutputFormat::Rgb16_565 => 2,
-        };
-        let rgb_buffer_size = texture_size.0 as usize * texture_size.1 as usize * rgb_bpp;
+        // let rgb_bpp = match output_format {
+        //     y2r::OutputFormat::Rgb32 => 4,
+        //     y2r::OutputFormat::Rgb24 => 3,
+        //     y2r::OutputFormat::Rgb16_555 => 2,
+        //     y2r::OutputFormat::Rgb16_565 => 2,
+        // };
+
+        let rgb_buffer_size = texture_size.0 as usize * texture_size.1 as usize;
         let rgb_buffer = unsafe {
-            std::boxed::Box::<[u8], _>::new_zeroed_slice_in(rgb_buffer_size, LinearAllocator)
-                .assume_init()
+            Box::<[u16], _>::new_zeroed_slice_in(rgb_buffer_size, LinearAllocator).assume_init()
         };
 
         Ok(Self {
             yuv_receiver,
             camera_view_size,
             texture_size,
-            rgb_bpp: rgb_bpp as i16,
             service,
             transfer_end_event,
             rgb_buffer,
         })
     }
 
-    pub fn get_rgb_buffer(&mut self) -> Result<&[u8]> {
+    // I think it would be nicer to do this asyncly, otherwise we just block the render thread
+    pub fn get_rgb_buffer(&mut self) -> Result<&[u16]> {
         if !self.yuv_receiver.update() {
             return Ok(&self.rgb_buffer);
         }
         let buffer = self.yuv_receiver.output_buffer_mut();
 
-        let rgb_line_size = self.texture_size.0 * self.rgb_bpp;
-        let rgb_line_skip = (self.texture_size.0 - self.camera_view_size.0) * self.rgb_bpp;
+        let rgb_line_size = self.texture_size.0 * 2;
+        let rgb_line_skip = (self.texture_size.0 - self.camera_view_size.0) * 2;
 
         let mut attempt = 0;
         loop {
@@ -89,7 +88,11 @@ impl Y2rContext {
                     .set_sending_yuyv(&buffer, self.camera_view_size.0 * 2, 0)
                     .context("Setting sending yuyv")?;
                 self.service
-                    .set_receiving(&mut self.rgb_buffer, rgb_line_size * 8, rgb_line_skip * 8)
+                    .set_receiving(
+                        bytemuck::cast_slice_mut(&mut self.rgb_buffer),
+                        rgb_line_size * 8,
+                        rgb_line_skip * 8,
+                    )
                     .context("Setting receiving")?;
                 self.service
                     .start_conversion()

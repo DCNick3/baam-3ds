@@ -1,7 +1,9 @@
 use crate::api::{Api, SubmitChallengeBody};
 use crate::qr::QrProcessorHandle;
 use crate::settings_storage::SETTINGS;
-use crate::ui::UiHandle;
+use crate::ui::{SystemState, UiHandle};
+use render::BreadcrumbRequest;
+use std::sync::Arc;
 use tracing::info;
 
 async fn check_access_token(
@@ -24,6 +26,8 @@ async fn check_access_token(
                 break (None, None);
             }
             Err(e) => {
+                ui.set_breadcrumb_state(BreadcrumbRequest::Login(false))
+                    .await;
                 ui.prompt_restart(e).await;
             }
         }
@@ -37,14 +41,17 @@ async fn check_access_token(
 
 async fn retrieve_access_token(api: &Api, ui: &UiHandle, qr: &mut QrProcessorHandle) -> String {
     loop {
+        ui.set_breadcrumb_state(BreadcrumbRequest::Login(true))
+            .await;
         ui.ask_to_scan_login().await;
         let token_candidate = qr.scan_login_token().await;
 
-        let Some(result) = ui
-            .handle(api.redeem_login_token(token_candidate).await)
-            .await
-        else {
-            continue;
+        let result = match api.redeem_login_token(token_candidate).await {
+            Ok(result) => result,
+            Err(e) => {
+                ui.notify_error(e).await;
+                continue;
+            }
         };
 
         let Some(access_token) = check_access_token(api, ui, Some(result.access_token)).await
@@ -63,6 +70,7 @@ async fn use_access_token(
     access_token: String,
 ) {
     loop {
+        ui.set_breadcrumb_state(BreadcrumbRequest::Mark(true)).await;
         ui.ask_to_scan_challenge().await;
         let challenge = qr.scan_challenge().await;
 
@@ -78,6 +86,7 @@ async fn use_access_token(
         {
             Ok(response) => {
                 info!("Challenge succeeded: {:?}", response);
+                ui.set_breadcrumb_state(BreadcrumbRequest::Success).await;
                 ui.prompt_success(
                     response.session_title,
                     response.attendance_snippet,
@@ -90,13 +99,16 @@ async fn use_access_token(
                 info!("It seems that access token has become invalid");
                 return;
             }
-            Err(e) => ui.notify_error(e).await,
+            Err(e) => {
+                info!("Error submitting: {:?}", e);
+                ui.notify_error(e).await
+            }
         }
     }
 }
 
-async fn flow(ui: UiHandle, mut qr: QrProcessorHandle) {
-    let api = Api::new();
+async fn flow(ui: UiHandle, system_state: Arc<SystemState>, mut qr: QrProcessorHandle) {
+    let api = Api::new(system_state);
 
     loop {
         let access_token = check_access_token(&api, &ui, SETTINGS.get().access_token).await;
@@ -112,6 +124,6 @@ async fn flow(ui: UiHandle, mut qr: QrProcessorHandle) {
     }
 }
 
-pub fn exec_flow(ui: UiHandle, qr: QrProcessorHandle) {
-    futures::executor::block_on(flow(ui, qr))
+pub fn exec_flow(ui: UiHandle, system_state: Arc<SystemState>, qr: QrProcessorHandle) {
+    futures::executor::block_on(flow(ui, system_state, qr))
 }

@@ -2,6 +2,7 @@ mod ffi;
 
 use crate::camera::YuvBuffer;
 use crate::spmc_buffer;
+use crate::ui::SystemState;
 use anyhow::Context;
 use ctru::services::cam::ViewSize;
 use ctru::services::svc::handle::BorrowedThread;
@@ -10,7 +11,7 @@ use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, info};
 
 pub fn is_login_token(token: &str) -> bool {
@@ -42,15 +43,22 @@ pub fn parse_challenge(challenge: &str) -> Option<ParsedChallenge> {
 }
 
 pub struct QrProcessorHandle {
+    system_state: Arc<SystemState>,
     receiver: async_broadcast::InactiveReceiver<String>,
 }
 
 impl QrProcessorHandle {
-    pub fn new(receiver: async_broadcast::InactiveReceiver<String>) -> Self {
-        Self { receiver }
+    pub fn new(
+        system_state: Arc<SystemState>,
+        receiver: async_broadcast::InactiveReceiver<String>,
+    ) -> Self {
+        Self {
+            system_state,
+            receiver,
+        }
     }
 
-    async fn scan<T: Debug>(&mut self, mut parse: impl FnMut(String) -> Option<T>) -> T {
+    async fn scan<T: Debug>(&mut self, mut parse: impl FnMut(&str) -> Option<T>) -> T {
         let mut receiver = self.receiver.activate_cloned();
         // drop all accumulated messages, since they are likely stale/from unrelated QRs
         let mut dropped_count = 0;
@@ -69,25 +77,31 @@ impl QrProcessorHandle {
             };
 
             // TODO: give some feedback to the user?
-            if let Some(parsed) = parse(scanned) {
+            if let Some(parsed) = parse(&scanned) {
                 self.receiver = receiver.deactivate();
+                self.system_state.qr_test_pulse.store(1, Ordering::Relaxed);
 
                 info!("parsed QR: {:?}", parsed);
                 return parsed;
+            } else {
+                self.system_state.qr_test_pulse.store(2, Ordering::Relaxed);
+                info!("skipping unparsable QR: {:?}", scanned)
             }
         }
     }
 
     pub async fn scan_login_token(&mut self) -> String {
-        self.scan(|t| is_login_token(&t).then_some(t)).await
+        self.scan(|t| is_login_token(t).then_some(t.to_string()))
+            .await
     }
 
     pub async fn scan_challenge(&mut self) -> ParsedChallenge {
-        self.scan(|t| parse_challenge(&t)).await
+        self.scan(|t| parse_challenge(t)).await
     }
 }
 
 fn qr_worker_fn(
+    system_state: Arc<SystemState>,
     view_size: ViewSize,
     mut output: spmc_buffer::Output<YuvBuffer>,
     sender: async_broadcast::Sender<String>,
@@ -103,9 +117,21 @@ fn qr_worker_fn(
             std::thread::sleep(Duration::from_millis(60));
         }
 
+        system_state
+            .qr_processing_pulse
+            .store(true, Ordering::Relaxed);
+
+        let start = Instant::now();
+
         let buffer = output.output_buffer_mut();
         unsafe { context.set_frame(buffer.as_ptr()) };
         context.process(&mut timings);
+
+        let duration = Instant::now().duration_since(start);
+
+        system_state
+            .qr_processing_time_us
+            .store(duration.as_micros() as u32, Ordering::Relaxed);
 
         let strings = context.get_strings();
         debug!("Scanned QR: {:?}\n timings = {:?}", strings, timings);
@@ -137,6 +163,7 @@ pub struct QrWorker {
 
 impl QrWorker {
     pub fn new(
+        system_state: Arc<SystemState>,
         view_size: ViewSize,
         output: spmc_buffer::Output<YuvBuffer>,
         priority: i32,
@@ -152,13 +179,14 @@ impl QrWorker {
             .stack_size(32 * 1024)
             .name("QrWorker".to_string())
             .spawn({
+                let system_state = system_state.clone();
                 let stop_signal = stop_signal.clone();
                 move || {
                     BorrowedThread::CURRENT_THREAD
                         .set_thread_priority(priority)
                         .unwrap();
 
-                    qr_worker_fn(view_size, output, sender, stop_signal)
+                    qr_worker_fn(system_state, view_size, output, sender, stop_signal)
                 }
             })
             .context("Failed to spawn camera thread")?;
@@ -168,7 +196,7 @@ impl QrWorker {
                 stop_signal,
                 thread: ManuallyDrop::new(thread),
             },
-            QrProcessorHandle::new(receiver.deactivate()),
+            QrProcessorHandle::new(system_state, receiver.deactivate()),
         ))
     }
 }

@@ -103,6 +103,7 @@ fn main() {
 
     // this basically reimplements DevkitArm3DS.cmake toolchain file to make if compose well with C flags that rust wants
     let dst = cmake::Config::new("cpp")
+        .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
         .define("DEVKITPRO", &devkitpro)
         .define("DEVKITARM", &devkitarm)
         .define("CMAKE_SYSTEM_NAME", "Generic")

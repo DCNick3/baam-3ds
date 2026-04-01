@@ -1,10 +1,12 @@
 use crate::api::ClientMessage;
-use std::time::Duration;
+use render::BreadcrumbRequest;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32};
 
 pub enum UiCommand {
     NotifyError(String),
     PromptRestart(String, oneshot::Sender<()>),
 
+    SetBreadcrumbState(BreadcrumbRequest),
     AskToScanLogin,
     AskToScanChallenge,
     PromptSuccess(
@@ -16,9 +18,6 @@ pub enum UiCommand {
     ),
 
     SetUsername(Option<String>),
-    SetNetState(bool),
-
-    FinishedProcessing(Duration),
 }
 
 #[derive(Clone)]
@@ -105,24 +104,35 @@ impl UiHandle {
         receiver.await.unwrap();
     }
 
+    pub async fn set_breadcrumb_state(&self, state: BreadcrumbRequest) {
+        self.sender
+            .send(UiCommand::SetBreadcrumbState(state))
+            .await
+            .unwrap();
+    }
+
     pub async fn set_username(&self, username: Option<String>) {
         self.sender
             .send(UiCommand::SetUsername(username))
             .await
             .unwrap();
     }
+}
 
-    pub async fn set_net_state(&self, busy: bool) {
-        self.sender
-            .send(UiCommand::SetNetState(busy))
-            .await
-            .unwrap();
-    }
+pub struct SystemState {
+    pub net_state: AtomicBool,
+    pub qr_processing_pulse: AtomicBool,
+    pub qr_test_pulse: AtomicU8,
+    pub qr_processing_time_us: AtomicU32,
+}
 
-    pub async fn finished_processing(&self, duration: Duration) {
-        self.sender
-            .send(UiCommand::FinishedProcessing(duration))
-            .await
-            .unwrap();
+impl SystemState {
+    pub fn new() -> Self {
+        Self {
+            net_state: AtomicBool::new(false),
+            qr_processing_pulse: AtomicBool::new(false),
+            qr_test_pulse: AtomicU8::new(0),
+            qr_processing_time_us: AtomicU32::new(0),
+        }
     }
 }

@@ -1,14 +1,16 @@
+use crate::ui::SystemState;
 use serde::de;
 use std::fmt::Display;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use ureq::SendBody;
 use ureq::http::{StatusCode, header};
 use url::Url;
 
-// TODO: allow overrides in settings?
-pub const BAAM_HOST: &str = "192.168.12.78:44321";
-// TODO: re-enable
-const ENABLE_CERT_VERIFICATION: bool = false;
+// TODO: allow overrides in settings? this will allow testing with a local server w/o code modifications.
+// pub const BAAM_HOST: &str = "i-cant-believe-its-not.baam.tatar";
+pub const BAAM_HOST: &str = "baam.tatar";
+const ENABLE_CERT_VERIFICATION: bool = true;
 
 pub struct ApiContext {
     pub base_url: Url,
@@ -17,10 +19,11 @@ pub struct ApiContext {
 pub struct Api {
     context: Arc<ApiContext>,
     agent: ureq::Agent,
+    system_state: Arc<SystemState>,
 }
 
 impl Api {
-    pub fn new() -> Self {
+    pub fn new(system_state: Arc<SystemState>) -> Self {
         let context = ApiContext {
             base_url: Url::parse(&format!("https://{}/", BAAM_HOST)).unwrap(),
         };
@@ -40,6 +43,7 @@ impl Api {
         Self {
             context: Arc::new(context),
             agent,
+            system_state,
         }
     }
 
@@ -50,8 +54,10 @@ impl Api {
         let context = self.context.clone();
         let agent = self.agent.clone();
 
+        self.system_state.net_state.store(true, Ordering::Relaxed);
+
         // let's hope that the default stack size will be enough for us (doubt)
-        blocking::unblock(move || -> Result<R::Response, ureq::Error> {
+        let result = blocking::unblock(move || -> Result<R::Response, ureq::Error> {
             let request = request
                 .make_request(&context)
                 .expect("Building a request failed");
@@ -63,7 +69,11 @@ impl Api {
 
             response.body_mut().read_json()
         })
-        .await
+        .await;
+
+        self.system_state.net_state.store(false, Ordering::Relaxed);
+
+        result
     }
 
     pub async fn redeem_login_token(
@@ -119,7 +129,7 @@ impl ApiRequest for RedeemLoginToken {
         ureq::http::Request::post(
             context
                 .base_url
-                .join("/api/v2/redeem-login-token")
+                .join("/api/v2/auth/redeem-login-token")
                 .unwrap()
                 .as_str(),
         )
@@ -138,6 +148,8 @@ pub struct Me {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeResponse {
+    #[expect(unused)]
+    pub subject: String,
     pub name: String,
 }
 
@@ -148,7 +160,7 @@ impl ApiRequest for Me {
         self,
         context: &ApiContext,
     ) -> ureq::http::Result<ureq::http::Request<SendBody<'static>>> {
-        ureq::http::Request::get(context.base_url.join("/api/v2/me").unwrap().as_str())
+        ureq::http::Request::get(context.base_url.join("/api/v2/auth/me").unwrap().as_str())
             .header(
                 header::AUTHORIZATION,
                 format!("Bearer {}", self.access_token),
@@ -191,7 +203,7 @@ impl ApiRequest for SubmitChallenge {
         ureq::http::Request::post(
             context
                 .base_url
-                .join("/api/v2/submit-challenge")
+                .join("/api/v2/attendance/submit-challenge")
                 .unwrap()
                 .as_str(),
         )

@@ -1,3 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+    ".",
+    "render",
+]
+
 [package]
 name = "baam"
 version = "0.1.0"
@@ -6,33 +13,41 @@ authors = ["⭐NINIKA⭐"]
 description = "A baam client for your 3DS"
 
 [dependencies]
+render = { path = "render" }
+
+# NOTE: not pinning concrete versions of these packages to unify the version used with dependencies like `pthread-3ds`
+# concrete versions are then pinned using a cargo patch
 ctru-rs = { git = "https://github.com/rust3ds/ctru-rs.git" }
 ctru-sys = { git = "https://github.com/rust3ds/ctru-rs.git" }
 # citro3d-sys = { git = "https://github.com/rust3ds/citro3d-rs.git", rev = "bb643c72aaa647d91bd422317fe59aed225dce32" }
 
-anyhow = "1.0.96"
+anyhow = "1.0.102"
 
-ureq = { version = "3.0.6", default-features = false, features = ["rustls-no-provider", "json"] }
+ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "json"] }
 rustls-rustcrypto = "0.0.2-alpha"
 
-serde = { version = "1.0.218", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 
-url = "2.5.4"
+url = "2.5.8"
 
-async-channel = "2.3.1"
+async-channel = "2.5.0"
 async-broadcast = "0.7.2"
 oneshot = "0.1.10"
-futures = "0.3.31"
-blocking = "1.6.1"
+futures = "0.3.32"
+blocking = "1.6.2"
 
-serde_json = "1.0.139"
+serde_json = "1.0.149"
 
-tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+
+imgref = "1.12.0"
+
+bytemuck = "1.25.0"
 
 [build-dependencies]
-cc = "1.2.14"
-cmake = "0.1.54"
+cc = "1.2.58"
+cmake = "0.1.58"
 
 [package.metadata.cargo-3ds]
 authors = ["NINIKA"]
